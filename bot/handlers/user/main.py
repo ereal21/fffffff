@@ -36,6 +36,7 @@ from bot.misc import TgConfig, EnvKeys
 from bot.misc.payment import quick_pay, check_payment_status
 from bot.misc.nowpayments import create_payment, check_payment
 from bot.utils import display_name
+from bot.utils.notifications import notify_owner_of_purchase
 from bot.utils.level import get_level_info
 
 
@@ -662,6 +663,13 @@ async def buy_item_callback_handler(call: CallbackQuery):
                 )
                 await bot.send_message(user_id, msg_text)
 
+            username = (
+                f'@{call.from_user.username}'
+                if call.from_user.username
+                else call.from_user.full_name
+            )
+            parent_cat = get_category_parent(item_info_list['category_name'])
+
             if os.path.isfile(value_data['value']):
                 desc = ''
                 desc_file = f"{value_data['value']}.txt"
@@ -699,60 +707,53 @@ async def buy_item_callback_handler(call: CallbackQuery):
                 with open(log_path, 'a') as log_file:
                     log_file.write(f"{formatted_time} user:{user_id} item:{item_name} price:{item_price}\n")
 
-                await bot.edit_message_text(chat_id=call.message.chat.id,
-                                           message_id=msg,
-                                           text=f'✅ Item purchased. 📦 Total Purchases: {purchases}',
-                                           reply_markup=back(f'item_{item_name}'))
+                await bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=msg,
+                    text=f'✅ Item purchased. 📦 Total Purchases: {purchases}',
+                    reply_markup=back(f'item_{item_name}')
+                )
 
                 cleanup_item_file(value_data['value'])
                 if os.path.isfile(desc_file):
                     cleanup_item_file(desc_file)
 
-                username = f'@{call.from_user.username}' if call.from_user.username else call.from_user.full_name
-                parent_cat = get_category_parent(item_info_list['category_name'])
-                notify_text = (
-                    f"User {username}\n"
-                    f"Time: {formatted_time} GMT+3\n"
-                    f"Product: {value_data['item_name']} ({item_price}€)\n"
-                    f"Crypto: N/A\n"
-                    f"Category: {parent_cat or '-'} / {item_info_list['category_name']}\n"
-                    f"Description: {desc or '-'}\n"
-                    f"File: {sold_path}\n\n"
-                    f"View file?"
+                await notify_owner_of_purchase(
+                    bot,
+                    username,
+                    formatted_time,
+                    value_data['item_name'],
+                    item_price,
+                    parent_cat,
+                    item_info_list['category_name'],
+                    desc,
+                    sold_path,
                 )
-                owner_markup = InlineKeyboardMarkup().add(
-                    InlineKeyboardButton('👁 View', callback_data=f'view_purchase_{purchase_id}')
-                )
-                await bot.send_message(EnvKeys.OWNER_ID, notify_text, reply_markup=owner_markup)
 
             else:
                 text = (
                     f'✅ Item purchased. <b>Balance</b>: <i>{new_balance}</i>€\n'
                     f'📦 Purchases: {purchases}\n\n{value_data["value"]}'
                 )
-                await bot.edit_message_text(chat_id=call.message.chat.id,
-                                           message_id=msg,
-                                           text=text,
-                                           parse_mode='HTML',
-                                           reply_markup=home_markup(get_user_language(user_id) or 'en')
+                await bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=msg,
+                    text=text,
+                    parse_mode='HTML',
+                    reply_markup=home_markup(get_user_language(user_id) or 'en')
                 )
 
-                username = f'@{call.from_user.username}' if call.from_user.username else call.from_user.full_name
-                parent_cat = get_category_parent(item_info_list['category_name'])
-                notify_text = (
-                    f"User {username}\n"
-                    f"Time: {formatted_time} GMT+3\n"
-                    f"Product: {value_data['item_name']} ({item_price}€)\n"
-                    f"Crypto: N/A\n"
-                    f"Category: {parent_cat or '-'} / {item_info_list['category_name']}\n"
-                    f"Description: {value_data['value']}\n"
-                    f"File: N/A\n\n"
-                    f"View file?"
+                await notify_owner_of_purchase(
+                    bot,
+                    username,
+                    formatted_time,
+                    value_data['item_name'],
+                    item_price,
+                    parent_cat,
+                    item_info_list['category_name'],
+                    value_data['value'],
+                    None,
                 )
-                owner_markup = InlineKeyboardMarkup().add(
-                    InlineKeyboardButton('👁 View', callback_data=f'view_purchase_{purchase_id}')
-                )
-                await bot.send_message(EnvKeys.OWNER_ID, notify_text, reply_markup=owner_markup)
 
             user_info = await bot.get_chat(user_id)
             logger.info(f"User {user_id} ({user_info.first_name})"
