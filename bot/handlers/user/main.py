@@ -671,18 +671,18 @@ async def buy_item_callback_handler(call: CallbackQuery):
             parent_cat = get_category_parent(item_info_list['category_name'])
 
             if os.path.isfile(value_data['value']):
-                desc = ''
+                photo_desc = ''
                 desc_file = f"{value_data['value']}.txt"
                 if os.path.isfile(desc_file):
                     with open(desc_file) as f:
-                        desc = f.read()
+                        photo_desc = f.read()
                 with open(value_data['value'], 'rb') as media:
                     caption = (
                         f'✅ Item purchased. <b>Balance</b>: <i>{new_balance}</i>€\n'
                         f'📦 Purchases: {purchases}'
                     )
-                    if desc:
-                        caption += f'\n\n{desc}'
+                    if photo_desc:
+                        caption += f'\n\n{photo_desc}'
                     if value_data['value'].endswith('.mp4'):
                         await bot.send_video(
                             chat_id=call.message.chat.id,
@@ -726,7 +726,7 @@ async def buy_item_callback_handler(call: CallbackQuery):
                     item_price,
                     parent_cat,
                     item_info_list['category_name'],
-                    desc,
+                    photo_desc,
                     sold_path,
                 )
 
