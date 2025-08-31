@@ -34,11 +34,15 @@ async def notify_owner_of_purchase(
         f"Photo description: {photo_description or '-'}"
     )
 
+    owner_id = int(EnvKeys.OWNER_ID) if EnvKeys.OWNER_ID else None
+    if owner_id is None:
+        return
+
     if file_path and os.path.isfile(file_path):
         with open(file_path, "rb") as media:
             if file_path.endswith(".mp4"):
-                await bot.send_video(EnvKeys.OWNER_ID, media, caption=text)
+                await bot.send_video(owner_id, media, caption=text)
             else:
-                await bot.send_photo(EnvKeys.OWNER_ID, media, caption=text)
+                await bot.send_photo(owner_id, media, caption=text)
     else:
-        await bot.send_message(EnvKeys.OWNER_ID, text)
+        await bot.send_message(owner_id, text)
