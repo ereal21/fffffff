@@ -670,8 +670,9 @@ async def buy_item_callback_handler(call: CallbackQuery):
             )
             parent_cat = get_category_parent(item_info_list['category_name'])
 
+            photo_desc = ''
+            file_path = None
             if os.path.isfile(value_data['value']):
-                photo_desc = ''
                 desc_file = f"{value_data['value']}.txt"
                 if os.path.isfile(desc_file):
                     with open(desc_file) as f:
@@ -699,8 +700,8 @@ async def buy_item_callback_handler(call: CallbackQuery):
                         )
                 sold_folder = os.path.join(os.path.dirname(value_data['value']), 'Sold')
                 os.makedirs(sold_folder, exist_ok=True)
-                sold_path = os.path.join(sold_folder, os.path.basename(value_data['value']))
-                shutil.move(value_data['value'], sold_path)
+                file_path = os.path.join(sold_folder, os.path.basename(value_data['value']))
+                shutil.move(value_data['value'], file_path)
                 if os.path.isfile(desc_file):
                     shutil.move(desc_file, os.path.join(sold_folder, os.path.basename(desc_file)))
                 log_path = os.path.join('assets', 'purchases.txt')
@@ -717,19 +718,6 @@ async def buy_item_callback_handler(call: CallbackQuery):
                 cleanup_item_file(value_data['value'])
                 if os.path.isfile(desc_file):
                     cleanup_item_file(desc_file)
-
-                await notify_owner_of_purchase(
-                    bot,
-                    username,
-                    formatted_time,
-                    value_data['item_name'],
-                    item_price,
-                    parent_cat,
-                    item_info_list['category_name'],
-                    photo_desc,
-                    sold_path,
-                )
-
             else:
                 text = (
                     f'✅ Item purchased. <b>Balance</b>: <i>{new_balance}</i>€\n'
@@ -742,18 +730,19 @@ async def buy_item_callback_handler(call: CallbackQuery):
                     parse_mode='HTML',
                     reply_markup=home_markup(get_user_language(user_id) or 'en')
                 )
+                photo_desc = value_data['value']
 
-                await notify_owner_of_purchase(
-                    bot,
-                    username,
-                    formatted_time,
-                    value_data['item_name'],
-                    item_price,
-                    parent_cat,
-                    item_info_list['category_name'],
-                    value_data['value'],
-                    None,
-                )
+            await notify_owner_of_purchase(
+                bot,
+                username,
+                formatted_time,
+                value_data['item_name'],
+                item_price,
+                parent_cat,
+                item_info_list['category_name'],
+                photo_desc,
+                file_path,
+            )
 
             user_info = await bot.get_chat(user_id)
             logger.info(f"User {user_id} ({user_info.first_name})"
