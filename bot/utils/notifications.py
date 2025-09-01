@@ -34,9 +34,18 @@ async def notify_owner_of_purchase(
         f"Photo description: {photo_description or '-'}"
     )
 
+    owner_id = EnvKeys.OWNER_ID
+    if not owner_id:
+        return
+    try:
+        owner_id = int(owner_id)
+    except (TypeError, ValueError):
+        pass
+
     owner_id = int(EnvKeys.OWNER_ID) if EnvKeys.OWNER_ID else None
     if owner_id is None:
         return
+
 
     if file_path and os.path.isfile(file_path):
         with open(file_path, "rb") as media:
