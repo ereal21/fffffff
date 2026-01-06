@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import datetime
 import os
 import random
@@ -72,6 +73,148 @@ def build_subcategory_description(parent: str, lang: str) -> str:
         lines.append("")
     lines.append(t(lang, 'choose_subcategory'))
     return "\n".join(lines)
+
+
+TELEGRAM_MESSAGE_LIMIT = 4096
+SHOP_PAGINATION_FOOTER = "⚠️ This menu exceeds Telegram’s message limit. Use the arrows to view more."
+
+
+def _split_shop_text(text: str) -> list[str]:
+    """Split text into Telegram-safe pages, appending a footer when paginated."""
+    if len(text.encode('utf-8')) <= TELEGRAM_MESSAGE_LIMIT:
+        return [text]
+
+    footer = f"\n\n{SHOP_PAGINATION_FOOTER}"
+    footer_bytes = len(footer.encode('utf-8'))
+    page_limit = TELEGRAM_MESSAGE_LIMIT - footer_bytes
+    pages: list[str] = []
+    current_lines: list[str] = []
+    current_bytes = 0
+
+    def append_current():
+        if current_lines:
+            pages.append("\n".join(current_lines) + footer)
+
+    for line in text.split('\n'):
+        line_bytes = len(line.encode('utf-8'))
+        separator_bytes = 1 if current_lines else 0
+        if current_bytes + separator_bytes + line_bytes <= page_limit:
+            if separator_bytes:
+                current_lines.append(line)
+                current_bytes += separator_bytes + line_bytes
+            else:
+                current_lines.append(line)
+                current_bytes += line_bytes
+            continue
+
+        if line_bytes > page_limit:
+            append_current()
+            current_lines = []
+            current_bytes = 0
+            chunk = ""
+            chunk_bytes = 0
+            for ch in line:
+                ch_bytes = len(ch.encode('utf-8'))
+                if chunk_bytes + ch_bytes > page_limit:
+                    pages.append(chunk + footer)
+                    chunk = ch
+                    chunk_bytes = ch_bytes
+                else:
+                    chunk += ch
+                    chunk_bytes += ch_bytes
+            current_lines = [chunk]
+            current_bytes = chunk_bytes
+        else:
+            append_current()
+            current_lines = [line]
+            current_bytes = line_bytes
+
+    append_current()
+    if not pages:
+        return [text]
+    return pages
+
+
+def _build_shop_navigation_keyboard(base_buttons, message_id: int, current_page: int, total_pages: int) -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup()
+    for row in base_buttons:
+        markup.row(*row)
+
+    nav_row = []
+    if current_page > 0:
+        nav_row.append(InlineKeyboardButton('⬅️', callback_data=f'shop_page:{message_id}:{current_page - 1}'))
+    else:
+        nav_row.append(InlineKeyboardButton('⬅️', callback_data='dummy_button'))
+
+    if total_pages > 1:
+        nav_row.append(InlineKeyboardButton(f'{current_page + 1}/{total_pages}', callback_data='dummy_button'))
+
+    if current_page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton('➡️', callback_data=f'shop_page:{message_id}:{current_page + 1}'))
+    else:
+        nav_row.append(InlineKeyboardButton('➡️', callback_data='dummy_button'))
+
+    markup.row(*nav_row)
+    return markup
+
+
+async def send_or_edit_shop_text(bot, chat_id: int, message_id: int | None, text: str,
+                                 base_markup: InlineKeyboardMarkup, parse_mode: str | None = None,
+                                 edit: bool = False):
+    pages = _split_shop_text(text)
+    key = (chat_id, message_id) if message_id is not None else None
+    if len(pages) == 1:
+        if key:
+            TgConfig.SHOP_PAGES.pop(key, None)
+        if edit and message_id is not None:
+            return await bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=base_markup,
+                parse_mode=parse_mode
+            )
+        return await bot.send_message(
+            chat_id,
+            text,
+            parse_mode=parse_mode,
+            reply_markup=base_markup
+        )
+
+    base_buttons = copy.deepcopy(base_markup.inline_keyboard)
+    if edit and message_id is not None:
+        TgConfig.SHOP_PAGES[(chat_id, message_id)] = {
+            'pages': pages,
+            'base_buttons': base_buttons,
+            'parse_mode': parse_mode
+        }
+        pagination_markup = _build_shop_navigation_keyboard(base_buttons, message_id, 0, len(pages))
+        return await bot.edit_message_text(
+            pages[0],
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=pagination_markup,
+            parse_mode=parse_mode
+        )
+
+    sent_message = await bot.send_message(
+        chat_id,
+        pages[0],
+        parse_mode=parse_mode,
+        reply_markup=base_markup
+    )
+    TgConfig.SHOP_PAGES[(chat_id, sent_message.message_id)] = {
+        'pages': pages,
+        'base_buttons': base_buttons,
+        'parse_mode': parse_mode
+    }
+    pagination_markup = _build_shop_navigation_keyboard(base_buttons, sent_message.message_id, 0, len(pages))
+    await bot.edit_message_reply_markup(
+        chat_id=chat_id,
+        message_id=sent_message.message_id,
+        reply_markup=pagination_markup
+    )
+    return sent_message
 
 
 def blackjack_hand_value(cards: list[int]) -> int:
@@ -227,8 +370,14 @@ async def price_list_callback_handler(call: CallbackQuery):
             lines.append(f"  • {display_name(item)} ({info['price']:.2f}€)")
     text = '\n'.join(lines)
     await call.answer()
-    await bot.send_message(call.message.chat.id, text,
-                           parse_mode='HTML', reply_markup=back('back_to_menu'))
+    await send_or_edit_shop_text(
+        bot,
+        call.message.chat.id,
+        None,
+        text,
+        back('back_to_menu'),
+        parse_mode='HTML'
+    )
 
 
 async def blackjack_callback_handler(call: CallbackQuery):
@@ -515,6 +664,50 @@ async def dummy_button(call: CallbackQuery):
     await bot.answer_callback_query(callback_query_id=call.id, text="")
 
 
+async def shop_page_navigation(call: CallbackQuery):
+    bot, user_id = await get_bot_user_ids(call)
+    key = (call.message.chat.id, call.message.message_id)
+    data = TgConfig.SHOP_PAGES.get(key)
+    parts = call.data.split(':')
+    if not data or len(parts) != 3:
+        await call.answer()
+        return
+
+    try:
+        callback_message_id = int(parts[1])
+        target_page = int(parts[2])
+    except ValueError:
+        await call.answer()
+        return
+
+    if callback_message_id != call.message.message_id:
+        await call.answer()
+        return
+
+    pages = data.get('pages', [])
+    total_pages = len(pages)
+    if not pages or target_page < 0 or target_page >= total_pages:
+        await call.answer()
+        return
+
+    parse_mode = data.get('parse_mode')
+    pagination_markup = _build_shop_navigation_keyboard(
+        data.get('base_buttons', []),
+        call.message.message_id,
+        target_page,
+        total_pages
+    )
+    TgConfig.SHOP_PAGES[key]['current_page'] = target_page
+    await bot.edit_message_text(
+        pages[target_page],
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=pagination_markup,
+        parse_mode=parse_mode
+    )
+    await call.answer()
+
+
 async def items_list_callback_handler(call: CallbackQuery):
     category_name = call.data[9:]
     bot, user_id = await get_bot_user_ids(call)
@@ -524,11 +717,13 @@ async def items_list_callback_handler(call: CallbackQuery):
         markup = subcategories_list(subcategories, category_name)
         lang = get_user_language(user_id) or 'en'
         text = build_subcategory_description(category_name, lang)
-        await bot.edit_message_text(
+        await send_or_edit_shop_text(
+            bot,
+            call.message.chat.id,
+            call.message.message_id,
             text,
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=markup,
+            markup,
+            edit=True
         )
     else:
         goods = get_all_items(category_name)
@@ -1228,6 +1423,8 @@ def register_user_handlers(dp: Dispatcher):
                                        lambda c: c.data.startswith('check_'), state='*')
     dp.register_callback_query_handler(process_home_menu,
                                        lambda c: c.data == 'home_menu', state='*')
+    dp.register_callback_query_handler(shop_page_navigation,
+                                       lambda c: c.data.startswith('shop_page:'), state='*')
 
     dp.register_message_handler(process_replenish_balance,
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'process_replenish_balance')
