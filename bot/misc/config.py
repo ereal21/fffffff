@@ -6,6 +6,7 @@ class TgConfig(ABC):
     STATE: Final = {}
     BASKETS: Final = {}
     BLACKJACK_STATS: Final = {}
+    SHOP_PAGES: Final = {}
     CHANNEL_URL: Final = 'https://t.me/+iXbi98gT0v5lOTNk'
     HELPER_URL: Final = '@Karunele'
     REVIEWS_URL: Final = 'https://t.me/+-yPLEiJwp-IxYzlk'

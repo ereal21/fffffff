@@ -1,7 +1,7 @@
 import datetime
 import os
 import shutil
-import datetime
+from zoneinfo import ZoneInfo
 
 from aiogram import Dispatcher
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -622,8 +622,11 @@ async def statistics_callback_handler(call: CallbackQuery):
     TgConfig.STATE[user_id] = None
     role = check_role(user_id)
     if role & Permission.SHOP_MANAGE:
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        vilnius_now = datetime.datetime.now(ZoneInfo("Europe/Vilnius"))
+        today = vilnius_now.strftime("%Y-%m-%d")
+        generated_at = vilnius_now.strftime("%Y-%m-%d %H:%M:%S")
         await bot.edit_message_text('Shop statistics:\n'
+                                    f'🕒 Generated at: {generated_at} (Europe/Vilnius)\n'
                                     '➖➖➖➖➖➖➖➖➖➖➖➖➖\n'
                                     '<b>◽USERS</b>\n'
                                     f'◾️Users in last 24h: {select_today_users(today)}\n'
